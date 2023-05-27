@@ -1,0 +1,604 @@
+
+#include <windows.h>
+using namespace std;
+
+HWND hWnd = GetConsoleWindow();
+HDC hdc = GetDC(hWnd);
+const COLORREF Wh = RGB(255, 255, 255);
+const COLORREF Bl = RGB(0, 0, 0);
+const COLORREF Br = RGB(150, 150, 150);
+const COLORREF Re = RGB(240, 0, 20);
+const COLORREF Ye = RGB(255, 255, 0);
+const COLORREF Gr = RGB(0, 240, 0);
+const COLORREF GR = RGB(80, 80, 80);
+HPEN Pen;
+
+int Time{ 90 };
+int CounterForTime{};
+
+void SetConsoleSize()               // Устанавливает размер окна
+{
+    const int colConsole = 80;
+    const int rowConsole = 56;
+    HANDLE hNdl = GetStdHandle(STD_OUTPUT_HANDLE);
+    SMALL_RECT windowSize = { 0,0,colConsole - 1,rowConsole - 1 };
+    SetConsoleWindowInfo(hNdl, TRUE, &windowSize);
+    COORD bufferSize = { colConsole, rowConsole };
+    SetConsoleScreenBufferSize(hNdl, bufferSize);
+}
+
+struct
+{
+    int X{ 100 };
+    int Y{ -70000 };
+    int OldY{};
+    HBRUSH brsh = CreateSolidBrush(Br);
+    HBRUSH brshh = CreateSolidBrush(Wh);
+
+    void Draw()
+    {
+        RECT rct = { X - 1, OldY, X + 280, OldY + 1 };
+        FillRect(hdc, &rct, brsh);
+
+        rct = { X - 1, Y, X + 280, Y + 56 };
+        FillRect(hdc, &rct, brshh);
+    }
+
+} Finish;
+
+struct
+{
+    int X[4]{};                         // Текущая координата по X каждой машинки
+    int Y[4]{ 672, 672, 672, 672 };     // Текущая координата по Y каждой машинки
+    int OldY[3]{};                      // Старая координата по Y каждой машинки
+    int QuaInSight{};                   // Количество машинок, которые находятся в зоне видимости или немного выше
+    int Num{};
+    int OldNum{};
+    int Qua{};
+    int CentreX[4]{};
+    int CentreY[4]{};
+
+    HBRUSH brsh = CreateSolidBrush(Br);
+    HBRUSH brshh = CreateSolidBrush(Ye);
+    HBRUSH brshhh = CreateSolidBrush(GR);
+    HPEN pen = CreatePen(PS_SOLID, 2, Bl);
+
+    void GenerationCoord()                          // Генерация случайных координат машинки
+    {      
+        Y[Num] = rand() % 168 + 56;                 // Добавление случайной координаты по Y
+        Y[Num] *= -1;
+        X[Num] = rand() % 240 + 100;                // Добавление случайной координаты по X
+    }
+
+    void ChangeCoord(bool Moving, int V)
+    {
+        if (Qua < 4) Qua = Num + 1;
+
+        for (int i = 0; i < Qua; i++) OldY[i] = Y[i];
+        if (Moving)
+        {
+            for (int i = 0; i < Qua; i++)
+            {
+                if (Y[i] < 672)
+                {
+                    if (V <= 200) Y[i] += 5;
+                    else Y[i] += 10;
+                }
+            }
+        }
+        else for (int i = 0; i < Qua; i++) Y[i] -= 5;
+
+        if (Y[Num] > 168)
+        {
+            OldNum = Num;
+            if (Num < 3) Num++;
+            else Num = 0;
+
+            if (Y[Num] < 672) Num = OldNum;
+            else if (Finish.Y < -1500) GenerationCoord();
+        }
+    }
+
+    void Draw()
+    {
+        for (int i = 0; i < Qua; i++)
+        {
+            RECT rct = { X[i] - 1, OldY[i], X[i] + 41, OldY[i] + 57 };
+            FillRect(hdc, &rct, brsh);
+
+            SelectObject(hdc, brshh);
+
+            POINT Octagon[8] =
+            {
+                { X[i] + 10, Y[i] },
+                { X[i] + 30, Y[i] },
+                { X[i] + 40, Y[i] + 15 },
+                { X[i] + 40, Y[i] + 50 },
+                { X[i] + 36, Y[i] + 56 },
+                { X[i] + 4, Y[i] + 56 },
+                { X[i], Y[i] + 50 },
+                { X[i], Y[i] + 15 }
+            };
+
+            Polygon(hdc, Octagon, 8);
+
+            SelectObject(hdc, brshhh);
+
+            POINT Roof[8]
+            {
+                { X[i] + 27, Y[i] + 15 },
+                { X[i] + 30, Y[i] + 18 },
+                { X[i] + 30, Y[i] + 43 },
+                { X[i] + 27, Y[i] + 46 },
+                { X[i] + 13, Y[i] + 46 },
+                { X[i] + 10, Y[i] + 43 },
+                { X[i] + 10, Y[i] + 18 },
+                { X[i] + 13, Y[i] + 15 }
+            };
+
+            Polygon(hdc, Roof, 8);
+        }
+    }
+
+} Car;
+
+struct
+{
+    int X{};                    // Текущая координата по X
+    int Y{ 572 };               // Текущая координата по Y
+    int OldX{};                 // Предыдущая координата по X
+    int V{};                    // Скорость
+    int OldV{};                 // Предыдущая скорость
+    int CounterForMove{};       // Счётчик для движения (ускорения)
+    int CounterForStop{};       // Счётчик для торможения
+    int OldVN = 0;
+    int VN = 0;
+    int FlagForRelationship{};
+    int CentreX{};
+    int CentreY{};
+    int CounterForCrash{};
+
+    bool GetVelocity(bool f)              // Выбор скорости (200км/ч или 400км/ч)
+    {
+        OldVN = VN;
+        if (f == 0)
+        {
+            if (GetAsyncKeyState('Z'))  // 200км/ч
+            {
+                if (We.V < 200)
+                {
+                    VN = 1;
+                    We.V++;
+                }
+                Finish.Y += 5;
+                return 1;
+            }
+            else if (GetAsyncKeyState('X'))  // 400км/ч
+            {
+                if (We.V < 400 && We.CounterForMove == 1)
+                {
+                    VN = 2;
+                    We.V++;
+                    We.CounterForMove = 0;
+                }
+                Finish.Y += 10;
+                return 1;
+            }
+            else
+            {
+                VN = 0;
+                return 0;
+            }
+        }
+        else
+        {
+            VN = 0;
+            return 0;
+        }
+    }
+
+    bool Braking()
+    {
+        if (OldVN > VN) return 1;
+        else if (VN == 0) return 1;
+        else return 0;
+    }
+
+    HBRUSH brsh = CreateSolidBrush(Br);
+    HBRUSH brshh = CreateSolidBrush(Re);
+    HBRUSH brshhh = CreateSolidBrush(GR);
+    HPEN pen = CreatePen(PS_SOLID, 2, Bl);
+
+    void Draw() 
+    {
+        RECT rct = { OldX, Y, OldX + 40, Y + 56 };
+        FillRect(hdc, &rct, brsh);
+
+        SelectObject(hdc, brshh);
+
+        POINT Octagon[8] = 
+        {
+            { X + 10, Y },
+            { X + 30, Y },
+            { X + 40, Y + 15 },
+            { X + 40, Y + 50 },
+            { X + 36, Y + 56 },
+            { X + 4, Y + 56 },
+            { X, Y + 50 },
+            { X, Y + 15 }
+        }; 
+
+        Polygon(hdc, Octagon, 8);
+
+        SelectObject(hdc, brshhh);
+
+        POINT Roof[8]
+        {
+            { X + 27, Y + 15 },
+            { X + 30, Y + 18 },
+            { X + 30, Y + 43 },
+            { X + 27, Y + 46 },
+            { X + 13, Y + 46 },
+            { X + 10, Y + 43 },
+            { X + 10, Y + 18 },
+            { X + 13, Y + 15 }
+        };
+
+        Polygon(hdc, Roof, 8);
+    }
+
+    void Crash()
+    {
+        RECT rct = { OldX - 1, Y - 1, OldX + 41, Y + 57 };
+        FillRect(hdc, &rct, brsh);
+    }
+
+    bool RelationshipWithCar()
+    {
+        CentreX = X + 20;
+        CentreY = Y + 28;
+
+        for (int i = 0; i < Car.Qua; i++)
+        {
+            Car.CentreX[i] = Car.X[i] + 20;
+            Car.CentreY[i] = Car.Y[i] + 28;
+
+            int DistanceX = Car.CentreX[i] - CentreX;
+            if (DistanceX < 0) DistanceX *= -1;
+
+            int DistanceY = Car.CentreY[i] - CentreY;
+            if (DistanceY < 0) DistanceY *= -1;
+
+            if ((DistanceX < 40) && (DistanceY < 56)) return 1;
+        }
+
+        return 0;
+    }
+} We;
+
+struct
+{
+    int Y[5]{};
+    int Frequency[10]{10, 7, 5, 4, 3, 3, 2, 2, 2, 1};
+    int ChangingOfFrequenty{};
+    int Counter = 0;
+    
+    void GenerationOfCoord()
+    {
+        Y[0] = -160;
+        for (int i = 1; i < 5; i++) Y[i] = Y[i - 1] + 160;
+    }
+    void ChangingOfCoord()
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            Y[i] += 16;
+            if (Y[i] == 672) Y[i] = -160;
+        }
+    }
+    HBRUSH brsh = CreateSolidBrush(Wh);
+
+    void Draw()
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            RECT rct = { 230, Y[i], 246, Y[i] + 80};
+            FillRect(hdc, &rct, brsh);
+        }
+    }
+} Line;
+
+struct
+{
+    HBRUSH brsh = CreateSolidBrush(Gr); 
+    HBRUSH brshh = CreateSolidBrush(Br);
+    void DrawField()        // Рисование поля с двух сторон
+    {
+        RECT rct = { 0, 0, 100, 672 };
+        FillRect(hdc, &rct, brsh);
+        rct = { 380, 0, 500, 672 };
+        FillRect(hdc, &rct, brsh);
+    }
+    void DrawV(int V)   // Вывод нашей скорости
+    {
+        char v[9]{};
+        char arr[] = "km/h";
+        char *km = arr;
+        int flag{};
+
+        _itoa_s(V, v, 10);      // Перевод числа в массив символов
+        for (int i = 0; i < 8; i++)
+        {
+            if (flag == 1) v[i] = '\0';
+            if (v[i] == -2 && flag == 0) v[i] = *(km++);
+            if (*km == '\0') flag = 1;
+        }
+        COLORREF bk = SetBkColor(hdc, Bl);   // Цвет фона текста
+        SetTextColor(hdc, Wh);               // Установка цвета текста
+        TextOutA(hdc, 545, 336, v, 8);          // Вывод текста
+    }
+    void DrawRoad()
+    {
+        RECT rct = { 100, 0, 380, 672 };
+        FillRect(hdc, &rct, brshh);
+    }
+    void DrawTime()
+    {
+        char T[4]{};
+        
+        _itoa_s(Time, T, 10);                   // Перевод числа в массив символов
+        
+        for (int i = 0; i < 4; i++)
+        {
+            if (T[i] == -2) T[i] = '\0';
+        }
+
+        COLORREF bk = SetBkColor(hdc, Bl);      // Цвет фона текста
+        SetTextColor(hdc, Wh);                  // Установка цвета текста
+        TextOutA(hdc, 566, 380, T, 4);          // Вывод текста
+    }
+    HBRUSH brshhh = CreateSolidBrush(Bl);
+    void BlackLine()
+    {
+        RECT rct = { 0, 672, 640, 770 };
+        FillRect(hdc, &rct, brshhh);
+    }
+} Pixels;
+
+void Win()
+{
+    SelectObject(hdc, CreateFont(60, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 2, 0, NULL));
+    
+    COLORREF bk = SetBkColor(hdc, Br);          // Цвет фона текста
+    SetTextColor(hdc, Wh);                      // Установка цвета текста
+    TextOutA(hdc, 115, 330, "YOU WIN!", 9);     // Вывод текста
+}
+
+void GameOver()
+{
+    SelectObject(hdc, CreateFont(45, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 2, 0, NULL));
+
+    COLORREF bk = SetBkColor(hdc, Br);          // Цвет фона текста
+    SetTextColor(hdc, Wh);                      // Установка цвета текста
+    TextOutA(hdc, 114, 330, "GAME OVER!", 11);     // Вывод текста
+}
+
+void RedrawAll()
+{ 
+    Pixels.DrawRoad();
+    Pixels.DrawField();  
+    Finish.Draw();
+    Line.Draw();
+    Car.Draw();
+    Pixels.BlackLine();
+    if (We.FlagForRelationship == 1)
+    {
+        if (We.CounterForCrash < 25) We.Draw();
+    }
+    else We.Draw();
+    Pixels.DrawTime();
+    Pixels.DrawV(We.V);
+}
+
+bool Menu()
+{
+    int flag{ 1 };
+
+    HBRUSH brsh = CreateSolidBrush(Bl);
+    HBRUSH brshh = CreateSolidBrush(Wh);
+    HPEN pen = CreatePen(PS_SOLID, 4, Wh);
+
+    RECT rct = { 110, 200, 370, 400 };
+    FillRect(hdc, &rct, brsh);
+
+    SelectObject(hdc, CreateFont(25, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 2, 0, NULL));
+    COLORREF bk = SetBkColor(hdc, Bl);                  // Цвет фона текста
+    SetTextColor(hdc, Wh);                              // Установка цвета текста
+    TextOutA(hdc, 150, 250, "Start new game", 15);      // Вывод текста
+
+    SetTextColor(hdc, Wh);                              // Установка цвета текста
+    TextOutA(hdc, 150, 280, "Exit", 5);                 // Вывод текста
+
+    SelectObject(hdc, brshh);
+
+    POINT Triagle[3] =
+    {
+        { 350, 280 },
+        { 350, 250 },
+        { 330, 265 }
+    };
+
+    Polygon(hdc, Triagle, 3);
+
+    while (true)
+    {
+        if (GetAsyncKeyState(VK_UP))
+        {
+            RECT rct = { 330, 280, 350, 310 };
+            FillRect(hdc, &rct, brsh);
+
+            SelectObject(hdc, brshh);
+
+            POINT Triagle[3] =
+            {
+                { 350, 280 },
+                { 350, 250 },
+                { 330, 265 }
+            };
+
+            Polygon(hdc, Triagle, 3);
+            flag = 1;
+        }
+        if (GetAsyncKeyState(VK_RETURN) && flag == 1) return 1;
+
+        if (GetAsyncKeyState(VK_DOWN))
+        {
+            RECT rct = { 330, 250, 350, 280 };
+            FillRect(hdc, &rct, brsh);
+
+            SelectObject(hdc, brshh);
+
+            POINT Triagle[3] =
+            {
+                { 350, 310 },
+                { 350, 280 },
+                { 330, 295 }
+            };
+
+            Polygon(hdc, Triagle, 3);
+            flag = 2;
+        }
+        if (GetAsyncKeyState(VK_RETURN) && flag == 2) return 0;
+    }
+}
+
+struct
+{
+    int FlagForLater{};
+    int Work{};
+    int OldWork{};
+
+    bool AllChanging()
+    {
+        if (We.OldX != We.X || We.V > 0)
+        {
+            Work = 1;
+            return 1;
+        }
+        else
+        {
+            Work = 0;
+            return 0;
+        }
+    }
+} ForRedraw;
+
+int main()
+{
+    SetConsoleSize();
+    Restart:
+    We.X = 180;
+    Finish.Y = -70000;
+    Time = 90;
+    We.V = 0;
+    for (int i = 0; i < Car.Qua; i++) Car.Y[i] -= (rand() % 700 + 800);
+    Line.GenerationOfCoord();
+    Car.GenerationCoord();
+    SelectObject(hdc, Line.brsh);
+    SelectObject(hdc, We.brsh);
+    SelectObject(hdc, Finish.brsh);
+    SelectObject(hdc, Finish.brshh);
+    SelectObject(hdc, We.pen);
+    SelectObject(hdc, Pixels.brshh);
+    SelectObject(hdc, Pixels.brsh);
+    SelectObject(hdc, CreateFont(18, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 2, 0, NULL));
+
+    while (true)
+    {
+        Car.ChangeCoord(We.GetVelocity(We.FlagForRelationship), We.V);
+        
+        if (We.CounterForStop == 2)
+        {
+            if (We.Braking() && We.V > 0) We.V -= 5;
+            We.CounterForStop = 0;
+        }
+        if (We.V < 0) We.V = 0;
+
+        if (GetAsyncKeyState(VK_RIGHT)) if (We.X < 340) We.X += 5;
+        if (GetAsyncKeyState(VK_LEFT)) if (We.X > 100) We.X -= 5;
+
+        if (We.V > 0)
+        {
+            Line.Counter++;
+            if (Line.Counter == Line.Frequency[Line.ChangingOfFrequenty])
+            {
+                if (We.GetVelocity(We.FlagForRelationship) == false)
+                {
+                    if (Line.ChangingOfFrequenty > 0) Line.ChangingOfFrequenty--;
+                }
+                else if (We.V <= 200)
+                {
+                    if (Line.ChangingOfFrequenty < 7) Line.ChangingOfFrequenty++;
+                }
+                else
+                {
+                    if (Line.ChangingOfFrequenty < 9) Line.ChangingOfFrequenty++;
+                }
+                Line.Counter = 0;
+                Line.ChangingOfCoord();
+            }
+        }
+
+        if (CounterForTime == 50)
+        {
+            Time--;
+            CounterForTime = 0;
+        }
+        
+        RedrawAll();
+
+        if (We.V == 0 && Car.Y[0] < -700) We.FlagForRelationship = 0;
+
+        if (We.RelationshipWithCar()) We.FlagForRelationship = 1;
+
+        if (We.FlagForRelationship)
+        {
+            if (We.CounterForCrash == 50)
+            {
+                We.CounterForCrash = 0;
+                We.Crash();
+            }
+            We.CounterForCrash++;
+        }
+
+        if (We.CounterForMove == 1) We.CounterForMove = 0;
+        We.CounterForMove++;
+
+        We.CounterForStop++;
+        CounterForTime++;
+
+        We.OldX = We.X;
+        We.OldV = We.V;
+
+        if (Finish.Y >= 600)
+        {
+            Win();
+            Sleep(1000);
+
+            if (Menu()) goto Restart;
+            else return 0;
+        }
+
+        if (Time == 0)
+        {
+            GameOver();
+            Sleep(1000);
+
+            if (Menu()) goto Restart;
+            else return 0;
+        }
+
+        Sleep(10);
+    }
+    system("pause");
+}
